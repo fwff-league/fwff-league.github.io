@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>FWFF lock test</title>
+<style>
+  body{margin:0;padding:24px 16px 48px;background:#EFF2EE;color:#141A17;
+    font:16px/1.5 Georgia,serif}
+  .wrap{max-width:560px;margin:0 auto}
+  h1{font:700 28px/1.1 "Arial Narrow",Arial,sans-serif;margin:0 0 6px}
+  p{margin:0 0 14px;color:#4E5A53}
+  .row{display:flex;gap:8px;margin:18px 0 10px}
+  input{flex:1;min-width:0;font-size:16px;padding:10px 12px;border:1px solid #C3CCC4;border-radius:3px;background:#fff}
+  button{font:600 16px Arial,sans-serif;padding:10px 16px;border:0;border-radius:3px;background:#6F3D96;color:#fff;cursor:pointer;min-height:44px}
+  ol{padding-left:22px;margin:16px 0 0}
+  li{margin:6px 0}
+  .ok{color:#0A7353;font-weight:bold}
+  .bad{color:#B23A48;font-weight:bold}
+  #out{margin-top:16px;padding:12px;border:1px solid #D8DED8;border-radius:3px;background:#FBFCFA;min-height:24px}
+  .ua{font:12px monospace;color:#5F6B64;word-break:break-all;margin-top:22px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>FWFF lock test</h1>
+  <p>This checks whether this browser can open the locked Record Book. Nothing is saved.</p>
+  <ol id="checks"><li>Running checks…</li></ol>
+  <div class="row">
+    <input id="pw" placeholder="Type Pierce" autocomplete="off" autocapitalize="off">
+    <button id="go" type="button">Unlock</button>
+  </div>
+  <div id="out">Type <b>Pierce</b> and press Unlock.</div>
+  <div class="ua" id="ua"></div>
+</div>
+<script>
+var BLOB = {"salt": "ZzSWiz/ExoEbq+Axarn/YQ==", "iv": "E9raeOfulrmg0tZb", "it": 150000, "ct": "ERJAtF1gyT/w3hJtWTMinomo8UF2UnpDN1RQg+U02mIax0VZzAqpK6FSZT2pMmq/xa4YoEfYTfe6nOXCV61U+642SuPQMxbJsmS0Td/A5pKgFC7hhexwLxpCzcLpAmE="};
+var checks = document.getElementById('checks');
+var out = document.getElementById('out');
+document.getElementById('ua').textContent = navigator.userAgent;
+
+function line(ok, text) {
+  var li = document.createElement('li');
+  li.innerHTML = '<span class="' + (ok ? 'ok' : 'bad') + '">' + (ok ? 'OK' : 'NO') + '</span> ' + text;
+  checks.appendChild(li);
+}
+function b64(s) {
+  var bin = atob(s), a = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+  return a;
+}
+function enc(s) {
+  if (window.TextEncoder) return new TextEncoder().encode(s);
+  var u = unescape(encodeURIComponent(s)), a = new Uint8Array(u.length);
+  for (var i = 0; i < u.length; i++) a[i] = u.charCodeAt(i);
+  return a;
+}
+function dec(buf) {
+  var a = new Uint8Array(buf);
+  if (window.TextDecoder) return new TextDecoder().decode(a);
+  var s = ''; for (var i = 0; i < a.length; i++) s += String.fromCharCode(a[i]);
+  return decodeURIComponent(escape(s));
+}
+var S = window.crypto && (window.crypto.subtle || window.crypto.webkitSubtle);
+
+function unlock(pw) {
+  return S.importKey('raw', enc(pw), {name: 'PBKDF2'}, false, ['deriveKey'])
+    .then(function (base) {
+      return S.deriveKey({name: 'PBKDF2', salt: b64(BLOB.salt), iterations: BLOB.it, hash: 'SHA-256'},
+        base, {name: 'AES-GCM', length: 256}, false, ['decrypt']);
+    })
+    .then(function (key) {
+      return S.decrypt({name: 'AES-GCM', iv: b64(BLOB.iv)}, key, b64(BLOB.ct));
+    })
+    .then(dec);
+}
+
+checks.innerHTML = '';
+var secure = window.isSecureContext !== false && location.protocol === 'https:';
+line(secure, 'Secure page (https)');
+line(!!(window.crypto && window.crypto.subtle), 'Browser encryption (crypto.subtle)' +
+  (!window.crypto || window.crypto.subtle ? '' : (window.crypto.webkitSubtle ? ' — only the old webkit version' : '')));
+line(!!window.localStorage, 'Remember-me storage');
+
+if (S) {
+  var t0 = Date.now();
+  unlock('pierce').then(function (msg) {
+    line(true, 'Self-test unlock worked (' + (Date.now() - t0) + ' ms)');
+  }, function (e) {
+    line(false, 'Self-test unlock failed: ' + (e && (e.name || e.message) || e));
+  });
+}
+
+document.getElementById('go').onclick = function () {
+  var pw = document.getElementById('pw').value.trim().toLowerCase();
+  if (!S) { out.innerHTML = '<span class="bad">This browser cannot do the encryption.</span>'; return; }
+  out.textContent = 'Unlocking…';
+  unlock(pw).then(function (msg) {
+    out.innerHTML = '<span class="ok">' + msg.replace(/</g, '&lt;') + '</span>';
+  }, function () {
+    out.innerHTML = '<span class="bad">Wrong name, or this browser could not unlock it.</span>';
+  });
+};
+</script>
+</body>
+</html>
